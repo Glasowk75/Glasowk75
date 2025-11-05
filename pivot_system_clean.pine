@@ -23,6 +23,7 @@ type PivotPoint
     float rsiValue
 
 // ==================== 전역 변수 ====================
+atr = (ta.atr(3) / close) * 100
 rsi = ta.rsi(close, rsiLength)
 sma200 = ta.sma(close, 200)
 sma60 = ta.sma(close, 60)
