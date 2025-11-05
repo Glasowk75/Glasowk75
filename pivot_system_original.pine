@@ -1,0 +1,540 @@
+//@version=5
+indicator('피봇 시스템 점수제', overlay=true)
+
+// ==================== 입력 설정 ====================
+showMultiZone = input.bool(true, '피봇 구간 표시', group='표시')
+showST = input.bool(true, 'ST 피봇 표시', group='표시')
+showSTS = input.bool(true, 'STS 피봇 표시', group='표시')
+showIT = input.bool(true, 'IT 피봇 표시', group='표시')
+showLT = input.bool(true, 'LT 피봇 표시', group='표시')
+showBOSMSS = input.bool(true, 'BOS/MSS 표시', group='표시')
+showDivergence = input.bool(true, '다이버전스 표시', group='표시')
+showScore = input.bool(true, '박스 점수 표시', group='표시')
+
+rsiLength = input.int(14, 'RSI 길이', minval=5, maxval=50, group='다이버전스')
+showSTDiv = input.bool(true, 'ST 다이버전스', group='다이버전스', inline='div1')
+
+multiPercent = input.float(0.2, '피봇 박스 범위 (%)', minval=0.1, maxval=1.0, step=0.05, group='설정')
+multiPercent2 = input.float(0.5, 'ST 피봇 근처 범위 (%)', minval=0.1, maxval=2.0, step=0.1, group='설정')
+
+colorST = input.color(color.new(color.gray, 60), 'ST 피봇 색상', group='색상')
+colorSTS = input.color(color.new(color.green, 0), 'STS 피봇 색상', group='색상')
+colorIT = input.color(color.new(color.blue, 60), 'IT 피봇 색상', group='색상')
+colorLT = input.color(color.new(color.red, 60), 'LT 피봇 색상', group='색상')
+
+// ==================== 데이터 구조 ====================
+type PivotPoint
+    float price
+    int barIndex
+    float rsiValue
+
+// ==================== 전역 변수 ====================
+atr = (ta.atr(3)/close)*100
+rsi = ta.rsi(close, rsiLength)
+sma200 = ta.sma(close, 200)
+sma60 = ta.sma(close, 60)
+sma20 = ta.sma(close, 20)
+
+// ==================== 배열 선언 (8개) ====================
+var array<PivotPoint> stHighArray = array.new<PivotPoint>()
+var array<PivotPoint> stLowArray = array.new<PivotPoint>()
+var array<PivotPoint> stsHighArray = array.new<PivotPoint>()
+var array<PivotPoint> stsLowArray = array.new<PivotPoint>()
+var array<PivotPoint> itHighArray = array.new<PivotPoint>()
+var array<PivotPoint> itLowArray = array.new<PivotPoint>()
+var array<PivotPoint> ltHighArray = array.new<PivotPoint>()
+var array<PivotPoint> ltLowArray = array.new<PivotPoint>()
+
+var box itHighBox = na, var box itLowBox = na
+var box ltHighBox = na, var box ltLowBox = na
+var int marketStructure = 0
+var int lastBOSSTHighBar = na, var int lastBOSSTLowBar = na
+var int bosConsecutiveCount = 0
+
+var label itHighScoreLabel = na
+var label itLowScoreLabel = na
+
+// ==================== 함수 정의 ====================
+f_addPivot(arr, p, maxSize) =>
+    result = false
+    if not na(p)
+        dup = false
+        if array.size(arr) > 0
+            lastElement = array.get(arr, array.size(arr)-1)
+            dup := lastElement.barIndex == p.barIndex
+
+        if not dup
+            array.push(arr, p)
+            if array.size(arr) > maxSize
+                array.shift(arr)
+            result := true
+    result
+
+// Gap 체크 함수
+f_checkBigGap(pivotVal, arr) =>
+    result = false
+    if not na(pivotVal) and array.size(arr) > 1
+        prevPivot = array.get(arr, array.size(arr)-2)
+        priceGap = math.abs(pivotVal - prevPivot.price)/close*100
+        result := priceGap >= atr * 5
+    result
+
+// 박스 점수 계산 함수
+f_calculateScore(boxPrice, boxTop, boxBot, itArr, stArr, isHigh) =>
+    score = 0
+
+    // 1. SMA 200 상승 중 + 가격 아래(High) 또는 위(Low) 박스
+    sma200Rising = sma200 > sma200[5]
+    if isHigh and sma200Rising and close > boxPrice
+        score += 1
+    else if not isHigh and sma200Rising and close < boxPrice
+        score += 1
+
+    // 2-4. BOS/MSS 연속
+    if bosConsecutiveCount >= 1 and bosConsecutiveCount <= 3
+        score += 1
+    else if bosConsecutiveCount >= 4 and bosConsecutiveCount <= 6
+        score += 2
+
+    // 5. SMA 200이 박스 안
+    if sma200 >= boxBot and sma200 <= boxTop
+        score += 2
+
+    // 6. SMA 60이 박스 안
+    if sma60 >= boxBot and sma60 <= boxTop
+        score += 1
+
+    // 7. SMA 20이 박스 안
+    if sma20 >= boxBot and sma20 <= boxTop
+        score += 1
+
+    // 8. IT 피봇이 박스 안 (중첩)
+    pivotCount = 0
+    if array.size(itArr) > 1
+        for i = 0 to array.size(itArr) - 2
+            p = array.get(itArr, i)
+            if p.price >= boxBot and p.price <= boxTop
+                pivotCount += 1
+        if pivotCount > 0
+            score += 2
+
+    // 9. 다이버전스 (나중에 구현)
+
+    // 10. ST 피봇이 박스 근처
+    stNearCount = 0
+    boxRange2 = boxPrice * multiPercent2 / 100
+    if array.size(stArr) > 0
+        for i = 0 to array.size(stArr) - 1
+            p = array.get(stArr, i)
+            if math.abs(p.price - boxPrice) <= boxRange2
+                stNearCount += 1
+    score += stNearCount
+
+    score
+
+// 다이버전스 체크 함수
+f_checkDivergence(stArr, isHigh) =>
+    if showDivergence and showSTDiv and array.size(stArr) >= 2
+        curr = array.get(stArr, array.size(stArr)-1)
+
+        for i = 2 to 3
+            if array.size(stArr) >= i
+                prev = array.get(stArr, array.size(stArr)-i)
+
+                priceHigher = curr.price > prev.price
+                priceLower = curr.price < prev.price
+                rsiHigher = curr.rsiValue > prev.rsiValue
+                rsiLower = curr.rsiValue < prev.rsiValue
+                priceChange = math.abs(curr.price - prev.price) / close * 100
+
+                if isHigh
+                    if rsiLower and priceHigher and priceChange < atr * 1.2
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#f23645, width=2, style=line.style_dashed)
+                        break
+                    else if rsiHigher and priceLower
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#ff9800, width=2, style=line.style_dashed)
+                        break
+                else
+                    if rsiHigher and priceLower and priceChange < atr * 1.2
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#089981, width=2, style=line.style_dashed)
+                        break
+                    else if rsiLower and priceHigher
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#4caf50, width=2, style=line.style_dashed)
+                        break
+
+f_checkBOS(stArr, isBull, mktStr, lastBOSBar) =>
+    newMktStr = mktStr
+    newLine = line(na)
+    newBox = box(na)
+    newLastBOSBar = lastBOSBar
+
+    if array.size(stArr) > 0
+        lastPivot = array.get(stArr, array.size(stArr)-1)
+
+        alreadyProcessed = not na(lastBOSBar) and lastBOSBar == lastPivot.barIndex
+        crossed = isBull ? ta.crossover(close, lastPivot.price) : ta.crossunder(close, lastPivot.price)
+
+        if crossed and not alreadyProcessed
+            lbl = (isBull and mktStr==-1) or (not isBull and mktStr==1) ? "MSS" : "BOS"
+            col = isBull ? #089981 : #f23645
+
+            newLine := line.new(lastPivot.barIndex, lastPivot.price, bar_index, lastPivot.price, color=col, width=2)
+            newBox := box.new(lastPivot.barIndex, lastPivot.price, bar_index, lastPivot.price, na, na,
+                             text=lbl, text_size=size.small, text_halign=text.align_center,
+                             text_valign=isBull?text.align_bottom:text.align_top, text_color=col)
+            newMktStr := isBull ? 1 : -1
+            newLastBOSBar := lastPivot.barIndex
+
+    [newMktStr, newLine, newBox, newLastBOSBar]
+
+f_drawBox(arr, oldBox, col, findHigh, stArr, itArr) =>
+    box.delete(oldBox)
+    closest = PivotPoint.new(na, na, na)
+    minD = 999999.0
+    maxBars = 100
+
+    if array.size(arr) > 0
+        for i = 0 to array.size(arr)-1
+            p = array.get(arr, i)
+            barDiff = bar_index - p.barIndex
+            if barDiff <= maxBars
+                if findHigh ? p.price > close : p.price < close
+                    d = math.abs(p.price - close)
+                    if d < minD
+                        minD := d
+                        closest := p
+
+    box newBox = na
+    int scoreValue = 0
+    float boxPrice = na
+
+    if not na(closest.price)
+        boxTop = closest.price * (1 + multiPercent/100)
+        boxBot = closest.price * (1 - multiPercent/100)
+        newBox := box.new(closest.barIndex, boxTop, bar_index+20, boxBot,
+                         bgcolor=color.new(col,90), border_color=color.new(col,60))
+
+        if showScore
+            scoreValue := f_calculateScore(closest.price, boxTop, boxBot, itArr, stArr, findHigh)
+
+    [newBox, scoreValue, closest.price]
+
+// ==================== 메인 로직 ====================
+
+// 1. ST 피봇 (15분 차트)
+[st15High, st15Low, st15Rsi] = request.security(syminfo.tickerid, "15",
+   [ta.pivothigh(high, 5, 5), ta.pivotlow(low, 5, 5), rsi[5]])
+
+if not na(st15High)
+    pt = PivotPoint.new(st15High, bar_index-5, st15Rsi)
+    if f_addPivot(stHighArray, pt, 60) and showST
+        label.new(bar_index-5, st15High, "•", style=label.style_none, textcolor=colorST, size=size.tiny, yloc=yloc.abovebar)
+
+if not na(st15Low)
+    pt = PivotPoint.new(st15Low, bar_index-5, st15Rsi)
+    if f_addPivot(stLowArray, pt, 60) and showST
+        label.new(bar_index-5, st15Low, "•", style=label.style_none, textcolor=colorST, size=size.tiny, yloc=yloc.belowbar)
+
+// STS 로직 (Long 캔들 감지)
+t = atr * 3
+s = math.abs(high - low) / close * 100
+hasLong = (s[3] >= t) or (s[2] >= t) or (s[1] >= t)
+
+hasBigGapHigh = f_checkBigGap(st15High, stHighArray)
+hasBigGapLow = f_checkBigGap(st15Low, stLowArray)
+
+if not na(st15High) and (hasLong or hasBigGapHigh)
+    pt = PivotPoint.new(st15High, bar_index-5, st15Rsi)
+    added = f_addPivot(stsHighArray, pt, 50)
+    if added and showSTS
+        label.new(bar_index-5, st15High, "▼", style=label.style_none, textcolor=colorSTS, size=size.small, yloc=yloc.abovebar)
+
+if not na(st15Low) and (hasLong or hasBigGapLow)
+    pt = PivotPoint.new(st15Low, bar_index-5, st15Rsi)
+    added = f_addPivot(stsLowArray, pt, 50)
+    if added and showSTS
+        label.new(bar_index-5, st15Low, "▲", style=label.style_none, textcolor=colorSTS, size=size.small, yloc=yloc.belowbar)
+
+// 2. IT 피봇 (현재 차트)
+itHigh = ta.pivothigh(high, 5, 5)
+itLow = ta.pivotlow(low, 5, 5)
+
+if not na(itHigh)
+    pt = PivotPoint.new(itHigh, bar_index-5, rsi[5])
+    added = f_addPivot(itHighArray, pt, 50)
+    if added and showIT
+        label.new(bar_index-5, itHigh, "▼", style=label.style_none, textcolor=colorIT, size=size.small, yloc=yloc.abovebar)
+
+if not na(itLow)
+    pt = PivotPoint.new(itLow, bar_index-5, rsi[5])
+    added = f_addPivot(itLowArray, pt, 50)
+    if added and showIT
+        label.new(bar_index-5, itLow, "▲", style=label.style_none, textcolor=colorIT, size=size.small, yloc=yloc.belowbar)
+
+// 3. LT 피봇 (4시간 차트)
+[lt4hHigh, lt4hLow, lt4hRsi] = request.security(syminfo.tickerid, "240",
+   [ta.pivothigh(high, 5, 5), ta.pivotlow(low, 5, 5), rsi[5]])
+
+if not na(lt4hHigh)
+    pt = PivotPoint.new(lt4hHigh, bar_index-5, lt4hRsi)
+    if f_addPivot(ltHighArray, pt, 30) and showLT
+        label.new(bar_index-5, lt4hHigh, "▼", style=label.style_none, textcolor=colorLT, size=size.normal, yloc=yloc.abovebar)
+
+if not na(lt4hLow)
+    pt = PivotPoint.new(lt4hLow, bar_index-5, lt4hRsi)
+    if f_addPivot(ltLowArray, pt, 30) and showLT
+        label.new(bar_index-5, lt4hLow, "▲", style=label.style_none, textcolor=colorLT, size=size.normal, yloc=yloc.belowbar)
+
+// 4. 다이버전스 체크 (ST 배열 사용)
+f_checkDivergence(stHighArray, true)
+f_checkDivergence(stLowArray, false)
+
+// 5. BOS/MSS 판정 (ST 배열 사용)
+if showBOSMSS
+    [newMktStr1, newLine1, newBox1, newBOSBar1] = f_checkBOS(stHighArray, true, marketStructure, lastBOSSTHighBar)
+    if not na(newLine1)
+        if (marketStructure == -1)
+            bosConsecutiveCount := 1
+        else
+            bosConsecutiveCount += 1
+
+        marketStructure := newMktStr1
+        lastBOSSTHighBar := newBOSBar1
+
+    [newMktStr2, newLine2, newBox2, newBOSBar2] = f_checkBOS(stLowArray, false, marketStructure, lastBOSSTLowBar)
+    if not na(newLine2)
+        if (marketStructure == 1)
+            bosConsecutiveCount := 1
+        else
+            bosConsecutiveCount += 1
+
+        marketStructure := newMktStr2
+        lastBOSSTLowBar := newBOSBar2
+
+// 6. 피봇 박스 그리기 (IT 배열 사용)
+if showMultiZone
+    [newITHighBox, itHighScore, itHighPrice] = f_drawBox(itHighArray, itHighBox, colorIT, true, stHighArray, itHighArray)
+    itHighBox := newITHighBox
+
+    label.delete(itHighScoreLabel)
+    if showScore and itHighScore > 0 and not na(itHighPrice)
+        itHighScoreLabel := label.new(bar_index+20, itHighPrice,
+                                      text=str.tostring(itHighScore) + "pt",
+                                      style=label.style_none,
+                                      textcolor=color.rgb(12, 12, 12),
+                                      size=size.small,
+                                      xloc=xloc.bar_index,
+                                      yloc=yloc.price)
+
+    [newITLowBox, itLowScore, itLowPrice] = f_drawBox(itLowArray, itLowBox, colorIT, false, stLowArray, itLowArray)
+    itLowBox := newITLowBox
+
+    label.delete(itLowScoreLabel)
+    if showScore and itLowScore > 0 and not na(itLowPrice)
+        itLowScoreLabel := label.new(bar_index+20, itLowPrice,
+                                     text=str.tostring(itLowScore) + "pt",
+                                     style=label.style_none,
+                                     textcolor=#030303,
+                                     size=size.small,
+                                     xloc=xloc.bar_index,
+                                     yloc=yloc.price)
+
+    [newLTHighBox, ltHighScore, ltHighPrice] = f_drawBox(ltHighArray, ltHighBox, colorLT, true, stHighArray, ltHighArray)
+    ltHighBox := newLTHighBox
+
+    [newLTLowBox, ltLowScore, ltLowPrice] = f_drawBox(ltLowArray, ltLowBox, colorLT, false, stLowArray, ltLowArray)
+    ltLowBox := newLTLowBox
+
+// 7. 참고선
+plot(sma200, 'SMA 200', color=color.new(color.orange, 50), linewidth=2)
+plot(sma60, 'SMA 60', color=color.new(color.blue, 70), linewidth=1)
+plot(sma20, 'SMA 20', color=color.new(color.green, 70), linewidth=1)
+
+// ==================== 점수 테이블 ====================
+showTable = input.bool(true, '점수 테이블 표시', group='표시')
+tablePos = input.string('top_right', '테이블 위치',
+  options=['top_left','top_right','bottom_left','bottom_right'], group='표시')
+
+var table scoreTable = na
+
+calcBoxScore(arr, itArr, stArr, isHigh) =>
+    score = array.new<int>(9, 0)
+
+    if array.size(arr) > 0
+        lastPivot = array.get(arr, array.size(arr)-1)
+        barDiff = bar_index - lastPivot.barIndex
+
+        if barDiff <= 100
+            validPosition = isHigh ? lastPivot.price > close : lastPivot.price < close
+
+            if validPosition
+                boxTop = lastPivot.price * (1 + multiPercent/100)
+                boxBot = lastPivot.price * (1 - multiPercent/100)
+
+                // 1. SMA200 방향
+                sma200Rising = sma200 > sma200[5]
+                if isHigh and sma200Rising and close > lastPivot.price
+                    array.set(score, 0, 1)
+                else if not isHigh and sma200Rising and close < lastPivot.price
+                    array.set(score, 0, 1)
+
+                // 2-4. BOS 연속
+                bosPoints = 0
+                if bosConsecutiveCount >= 1 and bosConsecutiveCount <= 3
+                    bosPoints := 1
+                else if bosConsecutiveCount >= 4 and bosConsecutiveCount <= 6
+                    bosPoints := 2
+                array.set(score, 1, bosPoints)
+
+                // 5. SMA200 위치
+                if sma200 >= boxBot and sma200 <= boxTop
+                    array.set(score, 2, 2)
+
+                // 6. SMA60 위치
+                if sma60 >= boxBot and sma60 <= boxTop
+                    array.set(score, 3, 1)
+
+                // 7. SMA20 위치
+                if sma20 >= boxBot and sma20 <= boxTop
+                    array.set(score, 4, 1)
+
+                // 8. IT 중첩
+                pivotCount = 0
+                if array.size(itArr) > 1
+                    for i = 0 to array.size(itArr) - 2
+                        p = array.get(itArr, i)
+                        if p.price >= boxBot and p.price <= boxTop
+                            pivotCount += 1
+                if pivotCount > 0
+                    array.set(score, 5, 2)
+
+                // 9. 다이버전스
+                array.set(score, 6, 0)
+
+                // 10. ST 근접
+                stNearCount = 0
+                boxRange2 = lastPivot.price * multiPercent2 / 100
+                if array.size(stArr) > 0
+                    for i = 0 to array.size(stArr) - 1
+                        p = array.get(stArr, i)
+                        if math.abs(p.price - lastPivot.price) <= boxRange2
+                            stNearCount += 1
+                array.set(score, 7, stNearCount)
+
+                // 총점
+                total = 0
+                for i = 0 to 7
+                    total += array.get(score, i)
+                array.set(score, 8, total)
+
+    score
+
+if showTable and barstate.islast
+    if na(scoreTable)
+        pos = tablePos == 'top_left' ? position.top_left :
+              tablePos == 'top_right' ? position.top_right :
+              tablePos == 'bottom_left' ? position.bottom_left : position.bottom_right
+
+        scoreTable := table.new(pos, columns=5, rows=14)
+
+    // 4개 박스 점수 계산
+    itHighScore = calcBoxScore(itHighArray, itHighArray, stHighArray, true)
+    itLowScore = calcBoxScore(itLowArray, itLowArray, stLowArray, false)
+    ltHighScore = calcBoxScore(ltHighArray, ltHighArray, stHighArray, true)
+    ltLowScore = calcBoxScore(ltLowArray, ltLowArray, stLowArray, false)
+
+    // 헤더
+    table.cell(scoreTable, 0, 0, '항목', text_size=size.small)
+    table.cell(scoreTable, 1, 0, 'IT High', text_color=#4169e1, text_size=size.small)
+    table.cell(scoreTable, 2, 0, 'IT Low', text_color=#089981, text_size=size.small)
+    table.cell(scoreTable, 3, 0, 'LT High', text_color=#ff6b6b, text_size=size.small)
+    table.cell(scoreTable, 4, 0, 'LT Low', text_color=#51cf66, text_size=size.small)
+
+    // 총점
+    table.cell(scoreTable, 0, 1, '🎯 총점', text_size=size.small)
+    table.cell(scoreTable, 1, 1, str.tostring(array.get(itHighScore, 8)) + 'pt', text_size=size.normal)
+    table.cell(scoreTable, 2, 1, str.tostring(array.get(itLowScore, 8)) + 'pt', text_size=size.normal)
+    table.cell(scoreTable, 3, 1, str.tostring(array.get(ltHighScore, 8)) + 'pt', text_size=size.normal)
+    table.cell(scoreTable, 4, 1, str.tostring(array.get(ltLowScore, 8)) + 'pt', text_size=size.normal)
+
+    // 1. SMA200 방향
+    table.cell(scoreTable, 0, 2, '1. SMA200 방향', text_size=size.tiny)
+    table.cell(scoreTable, 1, 2, str.tostring(array.get(itHighScore, 0)), text_size=size.tiny)
+    table.cell(scoreTable, 2, 2, str.tostring(array.get(itLowScore, 0)), text_size=size.tiny)
+    table.cell(scoreTable, 3, 2, str.tostring(array.get(ltHighScore, 0)), text_size=size.tiny)
+    table.cell(scoreTable, 4, 2, str.tostring(array.get(ltLowScore, 0)), text_size=size.tiny)
+
+    // 2-4. BOS 연속
+    table.cell(scoreTable, 0, 3, '2-4. BOS 연속', text_size=size.tiny)
+    table.cell(scoreTable, 1, 3, str.tostring(array.get(itHighScore, 1)), text_size=size.tiny)
+    table.cell(scoreTable, 2, 3, str.tostring(array.get(itLowScore, 1)), text_size=size.tiny)
+    table.cell(scoreTable, 3, 3, str.tostring(array.get(ltHighScore, 1)), text_size=size.tiny)
+    table.cell(scoreTable, 4, 3, str.tostring(array.get(ltLowScore, 1)), text_size=size.tiny)
+
+    // 5. SMA200 위치
+    table.cell(scoreTable, 0, 4, '5. SMA200 위치', text_size=size.tiny)
+    table.cell(scoreTable, 1, 4, str.tostring(array.get(itHighScore, 2)), text_size=size.tiny)
+    table.cell(scoreTable, 2, 4, str.tostring(array.get(itLowScore, 2)), text_size=size.tiny)
+    table.cell(scoreTable, 3, 4, str.tostring(array.get(ltHighScore, 2)), text_size=size.tiny)
+    table.cell(scoreTable, 4, 4, str.tostring(array.get(ltLowScore, 2)), text_size=size.tiny)
+
+    // 6. SMA60 위치
+    table.cell(scoreTable, 0, 5, '6. SMA60 위치', text_size=size.tiny)
+    table.cell(scoreTable, 1, 5, str.tostring(array.get(itHighScore, 3)), text_size=size.tiny)
+    table.cell(scoreTable, 2, 5, str.tostring(array.get(itLowScore, 3)), text_size=size.tiny)
+    table.cell(scoreTable, 3, 5, str.tostring(array.get(ltHighScore, 3)), text_size=size.tiny)
+    table.cell(scoreTable, 4, 5, str.tostring(array.get(ltLowScore, 3)), text_size=size.tiny)
+
+    // 7. SMA20 위치
+    table.cell(scoreTable, 0, 6, '7. SMA20 위치', text_size=size.tiny)
+    table.cell(scoreTable, 1, 6, str.tostring(array.get(itHighScore, 4)), text_size=size.tiny)
+    table.cell(scoreTable, 2, 6, str.tostring(array.get(itLowScore, 4)), text_size=size.tiny)
+    table.cell(scoreTable, 3, 6, str.tostring(array.get(ltHighScore, 4)), text_size=size.tiny)
+    table.cell(scoreTable, 4, 6, str.tostring(array.get(ltLowScore, 4)), text_size=size.tiny)
+
+    // 8. IT 중첩
+    table.cell(scoreTable, 0, 7, '8. IT 중첩', text_size=size.tiny)
+    table.cell(scoreTable, 1, 7, str.tostring(array.get(itHighScore, 5)), text_size=size.tiny)
+    table.cell(scoreTable, 2, 7, str.tostring(array.get(itLowScore, 5)), text_size=size.tiny)
+    table.cell(scoreTable, 3, 7, str.tostring(array.get(ltHighScore, 5)), text_size=size.tiny)
+    table.cell(scoreTable, 4, 7, str.tostring(array.get(ltLowScore, 5)), text_size=size.tiny)
+
+    // 9. 다이버전스
+    table.cell(scoreTable, 0, 8, '9. 다이버전스', text_size=size.tiny)
+    table.cell(scoreTable, 1, 8, str.tostring(array.get(itHighScore, 6)), text_size=size.tiny)
+    table.cell(scoreTable, 2, 8, str.tostring(array.get(itLowScore, 6)), text_size=size.tiny)
+    table.cell(scoreTable, 3, 8, str.tostring(array.get(ltHighScore, 6)), text_size=size.tiny)
+    table.cell(scoreTable, 4, 8, str.tostring(array.get(ltLowScore, 6)), text_size=size.tiny)
+
+    // 10. ST 근접
+    table.cell(scoreTable, 0, 9, '10. ST 근접', text_size=size.tiny)
+    table.cell(scoreTable, 1, 9, str.tostring(array.get(itHighScore, 7)), text_size=size.tiny)
+    table.cell(scoreTable, 2, 9, str.tostring(array.get(itLowScore, 7)), text_size=size.tiny)
+    table.cell(scoreTable, 3, 9, str.tostring(array.get(ltHighScore, 7)), text_size=size.tiny)
+    table.cell(scoreTable, 4, 9, str.tostring(array.get(ltLowScore, 7)), text_size=size.tiny)
+
+    // 구분선
+    table.merge_cells(scoreTable, 0, 10, 4, 10)
+    table.cell(scoreTable, 0, 10, '─────────────────────────', text_size=size.tiny)
+
+    // BOS 연속
+    table.cell(scoreTable, 0, 11, 'BOS 연속', text_size=size.small)
+    table.merge_cells(scoreTable, 1, 11, 4, 11)
+    table.cell(scoreTable, 1, 11, str.tostring(bosConsecutiveCount) + '회', text_size=size.small)
+
+    // 시장 구조
+    table.cell(scoreTable, 0, 12, '시장 구조', text_size=size.small)
+    table.merge_cells(scoreTable, 1, 12, 4, 12)
+    mktText = marketStructure==1 ? '⬆ Bullish' : marketStructure==-1 ? '⬇ Bearish' : '─ Neutral'
+    table.cell(scoreTable, 1, 12, mktText, text_size=size.small)
+
+    // 박스 존재
+    table.cell(scoreTable, 0, 13, '박스 존재', text_size=size.small)
+    table.cell(scoreTable, 1, 13, not na(itHighBox) ? '✓' : '✗', text_size=size.small)
+    table.cell(scoreTable, 2, 13, not na(itLowBox) ? '✓' : '✗', text_size=size.small)
+    table.cell(scoreTable, 3, 13, not na(ltHighBox) ? '✓' : '✗', text_size=size.small)
+    table.cell(scoreTable, 4, 13, not na(ltLowBox) ? '✓' : '✗', text_size=size.small)
