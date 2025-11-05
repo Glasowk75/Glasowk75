@@ -21,6 +21,7 @@ type PivotPoint
     float price
     int barIndex
     float rsiValue
+    int overlapCount  // 겹치는 피봇 개수
 
 // ==================== 전역 변수 ====================
 atr = (ta.atr(3) / close) * 100
@@ -37,9 +38,13 @@ var array<PivotPoint> ltLowArray = array.new<PivotPoint>()
 
 // ==================== 박스 및 시장 구조 변수 ====================
 var box itHighBox = na
+var label itHighLabel = na
 var box itLowBox = na
+var label itLowLabel = na
 var box ltHighBox = na
+var label ltHighLabel = na
 var box ltLowBox = na
+var label ltLowLabel = na
 
 var int marketStructure = 0  // 1: Bullish, -1: Bearish, 0: Neutral
 var int lastBOSHighBar = na
@@ -47,6 +52,21 @@ var int lastBOSLowBar = na
 var int bosConsecutiveCount = 0
 
 // ==================== 함수 정의 ====================
+
+// 피봇 겹침 개수 계산 함수 (배열 내 피봇 비교)
+f_calculateOverlap(arr, newPrice) =>
+    overlapCount = 0
+    if array.size(arr) > 0
+        // 새 피봇의 박스 구간 계산
+        boxTop = newPrice * (1 + multiPercent / 100)
+        boxBot = newPrice * (1 - multiPercent / 100)
+
+        // 기존 피봇들 중 박스 구간 내에 있는 것 카운트
+        for i = 0 to array.size(arr) - 1
+            p = array.get(arr, i)
+            if p.price >= boxBot and p.price <= boxTop
+                overlapCount += 1
+    overlapCount
 
 // 피봇 추가 함수 - 배열 크기 관리
 f_addPivot(arr, p, maxSize) =>
@@ -100,10 +120,11 @@ f_checkDivergence(arr, isHigh) =>
                 priceLower = curr.price < prev.price
                 rsiHigher = curr.rsiValue > prev.rsiValue
                 rsiLower = curr.rsiValue < prev.rsiValue
+                priceChange = math.abs(curr.price - prev.price) / close * 100
 
                 if isHigh
-                    // Regular Bearish Divergence: 가격 상승 + RSI 하락
-                    if rsiLower and priceHigher
+                    // Regular Bearish Divergence: 가격 상승 + RSI 하락 (가격 변화 작을 때만)
+                    if rsiLower and priceHigher and priceChange < atr * 1.2
                         line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
                                  color=#f23645, width=2, style=line.style_dashed)
                         break
@@ -113,8 +134,8 @@ f_checkDivergence(arr, isHigh) =>
                                  color=#ff9800, width=2, style=line.style_dashed)
                         break
                 else
-                    // Regular Bullish Divergence: 가격 하락 + RSI 상승
-                    if rsiHigher and priceLower
+                    // Regular Bullish Divergence: 가격 하락 + RSI 상승 (가격 변화 작을 때만)
+                    if rsiHigher and priceLower and priceChange < atr * 1.2
                         line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
                                  color=#089981, width=2, style=line.style_dashed)
                         break
@@ -125,9 +146,10 @@ f_checkDivergence(arr, isHigh) =>
                         break
 
 // 피봇 박스 그리기 함수
-f_drawBox(arr, oldBox, col, findHigh) =>
+f_drawBox(arr, oldBox, oldLabel, col, findHigh) =>
     box.delete(oldBox)
-    closest = PivotPoint.new(na, na, na)
+    label.delete(oldLabel)
+    closest = PivotPoint.new(na, na, na, 0)
     minD = 999999.0
     maxBars = 100
 
@@ -146,6 +168,7 @@ f_drawBox(arr, oldBox, col, findHigh) =>
                         closest := p
 
     box newBox = na
+    label newLabel = na
 
     if not na(closest.price)
         boxTop = closest.price * (1 + multiPercent / 100)
@@ -154,7 +177,17 @@ f_drawBox(arr, oldBox, col, findHigh) =>
                          bgcolor=color.new(col, 90),
                          border_color=color.new(col, 60))
 
-    newBox
+        // 겹침 개수 표시
+        if closest.overlapCount > 0
+            newLabel := label.new(bar_index + 20, closest.price,
+                                 text=str.tostring(closest.overlapCount),
+                                 style=label.style_none,
+                                 textcolor=col,
+                                 size=size.normal,
+                                 xloc=xloc.bar_index,
+                                 yloc=yloc.price)
+
+    [newBox, newLabel]
 
 // ==================== 메인 로직 ====================
 
@@ -163,7 +196,9 @@ itHigh = ta.pivothigh(high, 5, 5)
 itLow = ta.pivotlow(low, 5, 5)
 
 if not na(itHigh)
-    pt = PivotPoint.new(itHigh, bar_index - 5, rsi[5])
+    // 겹침 개수 계산 (기존 IT 피봇들과 비교)
+    overlap = f_calculateOverlap(itHighArray, itHigh)
+    pt = PivotPoint.new(itHigh, bar_index - 5, rsi[5], overlap)
     added = f_addPivot(itHighArray, pt, 50)
     if added and showIT
         label.new(bar_index - 5, itHigh, "▼", style=label.style_none,
@@ -172,7 +207,9 @@ if not na(itHigh)
         f_checkDivergence(itHighArray, true)
 
 if not na(itLow)
-    pt = PivotPoint.new(itLow, bar_index - 5, rsi[5])
+    // 겹침 개수 계산 (기존 IT 피봇들과 비교)
+    overlap = f_calculateOverlap(itLowArray, itLow)
+    pt = PivotPoint.new(itLow, bar_index - 5, rsi[5], overlap)
     added = f_addPivot(itLowArray, pt, 50)
     if added and showIT
         label.new(bar_index - 5, itLow, "▲", style=label.style_none,
@@ -185,13 +222,17 @@ ltHigh = ta.pivothigh(high, 20, 20)
 ltLow = ta.pivotlow(low, 20, 20)
 
 if not na(ltHigh)
-    pt = PivotPoint.new(ltHigh, bar_index - 20, rsi[20])
+    // 겹침 개수 계산
+    overlap = f_calculateOverlap(ltHighArray, ltHigh)
+    pt = PivotPoint.new(ltHigh, bar_index - 20, rsi[20], overlap)
     if f_addPivot(ltHighArray, pt, 30) and showLT
         label.new(bar_index - 20, ltHigh, "▼", style=label.style_none,
                  textcolor=colorLT, size=size.large, yloc=yloc.abovebar)
 
 if not na(ltLow)
-    pt = PivotPoint.new(ltLow, bar_index - 20, rsi[20])
+    // 겹침 개수 계산
+    overlap = f_calculateOverlap(ltLowArray, ltLow)
+    pt = PivotPoint.new(ltLow, bar_index - 20, rsi[20], overlap)
     if f_addPivot(ltLowArray, pt, 30) and showLT
         label.new(bar_index - 20, ltLow, "▲", style=label.style_none,
                  textcolor=colorLT, size=size.large, yloc=yloc.belowbar)
@@ -220,10 +261,10 @@ if showBOSMSS
 
 // 4. 피봇 박스 그리기
 if showMultiZone
-    itHighBox := f_drawBox(itHighArray, itHighBox, colorIT, true)
-    itLowBox := f_drawBox(itLowArray, itLowBox, colorIT, false)
-    ltHighBox := f_drawBox(ltHighArray, ltHighBox, colorLT, true)
-    ltLowBox := f_drawBox(ltLowArray, ltLowBox, colorLT, false)
+    [itHighBox, itHighLabel] := f_drawBox(itHighArray, itHighBox, itHighLabel, colorIT, true)
+    [itLowBox, itLowLabel] := f_drawBox(itLowArray, itLowBox, itLowLabel, colorIT, false)
+    [ltHighBox, ltHighLabel] := f_drawBox(ltHighArray, ltHighBox, ltHighLabel, colorLT, true)
+    [ltLowBox, ltLowLabel] := f_drawBox(ltLowArray, ltLowBox, ltLowLabel, colorLT, false)
 
 // 5. 이동평균선
 plot(sma200, 'SMA 200', color=color.new(color.orange, 50), linewidth=2)
