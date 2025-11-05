@@ -3,14 +3,12 @@ indicator('피봇 시스템', overlay=true)
 
 // ==================== 입력 설정 ====================
 showMultiZone = input.bool(true, '피봇 박스 표시', group='표시')
-showST = input.bool(true, 'ST 피봇 표시', group='표시')
 showIT = input.bool(true, 'IT 피봇 표시', group='표시')
 showLT = input.bool(true, 'LT 피봇 표시', group='표시')
 showBOSMSS = input.bool(true, 'BOS/MSS 표시', group='표시')
 
 multiPercent = input.float(0.2, '피봇 박스 범위 (%)', minval=0.1, maxval=1.0, step=0.05, group='설정')
 
-colorST = input.color(color.new(color.green, 0), 'ST 피봇 색상', group='색상')
 colorIT = input.color(color.new(color.blue, 60), 'IT 피봇 색상', group='색상')
 colorLT = input.color(color.new(color.red, 60), 'LT 피봇 색상', group='색상')
 
@@ -20,7 +18,6 @@ type PivotPoint
     int barIndex
 
 // ==================== 전역 변수 ====================
-atr = (ta.atr(3) / close) * 100
 sma200 = ta.sma(close, 200)
 sma60 = ta.sma(close, 60)
 sma20 = ta.sma(close, 20)
@@ -117,16 +114,10 @@ f_drawBox(arr, oldBox, col, findHigh) =>
 
 // ==================== 메인 로직 ====================
 
-// 1. 피봇 감지
-// (2,2) 피봇 감지
-stHigh = ta.pivothigh(high, 2, 2)
-stLow = ta.pivotlow(low, 2, 2)
-
-// (5,5) 피봇 감지
+// 1. IT 피봇 감지 (5,5)
 itHigh = ta.pivothigh(high, 5, 5)
 itLow = ta.pivotlow(low, 5, 5)
 
-// 2. IT 피봇 (5,5) 추가 - 항상 추가
 if not na(itHigh)
     pt = PivotPoint.new(itHigh, bar_index - 5)
     if f_addPivot(itHighArray, pt, 50) and showIT
@@ -139,40 +130,7 @@ if not na(itLow)
         label.new(bar_index - 5, itLow, "▲", style=label.style_none,
                  textcolor=colorIT, size=size.small, yloc=yloc.belowbar)
 
-// 3. ST 피봇 (2,2) 조건 체크 및 추가
-// Long 캔들 체크
-t = atr * 3
-s = math.abs(high - low) / close * 100
-hasLong = (s[3] >= t) or (s[2] >= t) or (s[1] >= t)
-
-// Big Gap 체크 - IT 배열의 마지막 피봇과 비교
-hasBigGapHigh = false
-hasBigGapLow = false
-
-if not na(stHigh) and array.size(itHighArray) > 0
-    lastPivot = array.get(itHighArray, array.size(itHighArray) - 1)
-    priceGap = math.abs(stHigh - lastPivot.price) / close * 100
-    hasBigGapHigh := priceGap >= atr * 5
-
-if not na(stLow) and array.size(itLowArray) > 0
-    lastPivot = array.get(itLowArray, array.size(itLowArray) - 1)
-    priceGap = math.abs(stLow - lastPivot.price) / close * 100
-    hasBigGapLow := priceGap >= atr * 5
-
-// ST 피봇 (2,2) - 조건 만족 시 IT 배열에 추가
-if not na(stHigh) and (hasLong or hasBigGapHigh)
-    pt = PivotPoint.new(stHigh, bar_index - 2)
-    if f_addPivot(itHighArray, pt, 50) and showST
-        label.new(bar_index - 2, stHigh, "▼", style=label.style_none,
-                 textcolor=colorST, size=size.normal, yloc=yloc.abovebar)
-
-if not na(stLow) and (hasLong or hasBigGapLow)
-    pt = PivotPoint.new(stLow, bar_index - 2)
-    if f_addPivot(itLowArray, pt, 50) and showST
-        label.new(bar_index - 2, stLow, "▲", style=label.style_none,
-                 textcolor=colorST, size=size.normal, yloc=yloc.belowbar)
-
-// 4. LT 피봇 감지 (현재 차트, 20/20)
+// 2. LT 피봇 감지 (20,20)
 ltHigh = ta.pivothigh(high, 20, 20)
 ltLow = ta.pivotlow(low, 20, 20)
 
@@ -188,7 +146,7 @@ if not na(ltLow)
         label.new(bar_index - 20, ltLow, "▲", style=label.style_none,
                  textcolor=colorLT, size=size.large, yloc=yloc.belowbar)
 
-// 5. BOS/MSS 판정 (보완된 IT 배열 사용)
+// 3. BOS/MSS 판정 (IT 배열 사용)
 if showBOSMSS
     [newMktStr1, newLine1, newBox1, newBOSBar1] = f_checkBOS(itHighArray, true, marketStructure, lastBOSHighBar)
     if not na(newLine1)
@@ -210,14 +168,14 @@ if showBOSMSS
         marketStructure := newMktStr2
         lastBOSLowBar := newBOSBar2
 
-// 6. 피봇 박스 그리기
+// 4. 피봇 박스 그리기
 if showMultiZone
     itHighBox := f_drawBox(itHighArray, itHighBox, colorIT, true)
     itLowBox := f_drawBox(itLowArray, itLowBox, colorIT, false)
     ltHighBox := f_drawBox(ltHighArray, ltHighBox, colorLT, true)
     ltLowBox := f_drawBox(ltLowArray, ltLowBox, colorLT, false)
 
-// 7. 이동평균선
+// 5. 이동평균선
 plot(sma200, 'SMA 200', color=color.new(color.orange, 50), linewidth=2)
 plot(sma60, 'SMA 60', color=color.new(color.blue, 70), linewidth=1)
 plot(sma20, 'SMA 20', color=color.new(color.green, 70), linewidth=1)
