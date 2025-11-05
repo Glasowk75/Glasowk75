@@ -261,10 +261,21 @@ if showBOSMSS
 
 // 4. 피봇 박스 그리기
 if showMultiZone
-    [itHighBox, itHighLabel] := f_drawBox(itHighArray, itHighBox, itHighLabel, colorIT, true)
-    [itLowBox, itLowLabel] := f_drawBox(itLowArray, itLowBox, itLowLabel, colorIT, false)
-    [ltHighBox, ltHighLabel] := f_drawBox(ltHighArray, ltHighBox, ltHighLabel, colorLT, true)
-    [ltLowBox, ltLowLabel] := f_drawBox(ltLowArray, ltLowBox, ltLowLabel, colorLT, false)
+    [newItHighBox, newItHighLabel] = f_drawBox(itHighArray, itHighBox, itHighLabel, colorIT, true)
+    itHighBox := newItHighBox
+    itHighLabel := newItHighLabel
+
+    [newItLowBox, newItLowLabel] = f_drawBox(itLowArray, itLowBox, itLowLabel, colorIT, false)
+    itLowBox := newItLowBox
+    itLowLabel := newItLowLabel
+
+    [newLtHighBox, newLtHighLabel] = f_drawBox(ltHighArray, ltHighBox, ltHighLabel, colorLT, true)
+    ltHighBox := newLtHighBox
+    ltHighLabel := newLtHighLabel
+
+    [newLtLowBox, newLtLowLabel] = f_drawBox(ltLowArray, ltLowBox, ltLowLabel, colorLT, false)
+    ltLowBox := newLtLowBox
+    ltLowLabel := newLtLowLabel
 
 // 5. 이동평균선
 plot(sma200, 'SMA 200', color=color.new(color.orange, 50), linewidth=2)
