@@ -4,15 +4,13 @@ indicator('피봇 시스템', overlay=true)
 // ==================== 입력 설정 ====================
 showMultiZone = input.bool(true, '피봇 박스 표시', group='표시')
 showST = input.bool(true, 'ST 피봇 표시', group='표시')
-showSTS = input.bool(true, 'STS 피봇 표시', group='표시')
 showIT = input.bool(true, 'IT 피봇 표시', group='표시')
 showLT = input.bool(true, 'LT 피봇 표시', group='표시')
 showBOSMSS = input.bool(true, 'BOS/MSS 표시', group='표시')
 
 multiPercent = input.float(0.2, '피봇 박스 범위 (%)', minval=0.1, maxval=1.0, step=0.05, group='설정')
 
-colorST = input.color(color.new(color.gray, 60), 'ST 피봇 색상', group='색상')
-colorSTS = input.color(color.new(color.green, 0), 'STS 피봇 색상', group='색상')
+colorST = input.color(color.new(color.green, 0), 'ST 피봇 색상', group='색상')
 colorIT = input.color(color.new(color.blue, 60), 'IT 피봇 색상', group='색상')
 colorLT = input.color(color.new(color.red, 60), 'LT 피봇 색상', group='색상')
 
@@ -30,8 +28,6 @@ sma20 = ta.sma(close, 20)
 // ==================== 배열 선언 ====================
 var array<PivotPoint> stHighArray = array.new<PivotPoint>()
 var array<PivotPoint> stLowArray = array.new<PivotPoint>()
-var array<PivotPoint> stsHighArray = array.new<PivotPoint>()
-var array<PivotPoint> stsLowArray = array.new<PivotPoint>()
 var array<PivotPoint> itHighArray = array.new<PivotPoint>()
 var array<PivotPoint> itLowArray = array.new<PivotPoint>()
 var array<PivotPoint> ltHighArray = array.new<PivotPoint>()
@@ -48,37 +44,16 @@ var int lastBOSSTHighBar = na
 var int lastBOSSTLowBar = na
 var int bosConsecutiveCount = 0
 
-// ==================== 피봇 변경 감지 변수 ====================
-var float lastST15High = na
-var float lastST15Low = na
-var float lastLT4hHigh = na
-var float lastLT4hLow = na
-
 // ==================== 함수 정의 ====================
 
-// 피봇 추가 함수 - 중복 방지 및 배열 크기 관리
+// 피봇 추가 함수 - 배열 크기 관리
 f_addPivot(arr, p, maxSize) =>
     result = false
     if not na(p)
-        dup = false
-        if array.size(arr) > 0
-            lastElement = array.get(arr, array.size(arr) - 1)
-            dup := lastElement.barIndex == p.barIndex
-
-        if not dup
-            array.push(arr, p)
-            if array.size(arr) > maxSize
-                array.shift(arr)
-            result := true
-    result
-
-// 큰 Gap 체크 함수 - STS 판별용
-f_checkBigGap(pivotVal, arr) =>
-    result = false
-    if not na(pivotVal) and array.size(arr) > 1
-        prevPivot = array.get(arr, array.size(arr) - 2)
-        priceGap = math.abs(pivotVal - prevPivot.price) / close * 100
-        result := priceGap >= atr * 5
+        array.push(arr, p)
+        if array.size(arr) > maxSize
+            array.shift(arr)
+        result := true
     result
 
 // BOS/MSS 체크 함수
@@ -144,91 +119,71 @@ f_drawBox(arr, oldBox, col, findHigh) =>
 
 // ==================== 메인 로직 ====================
 
-// 1. ST 피봇 감지 (15분 차트)
-[st15High, st15Low] = request.security(syminfo.tickerid, "15",
-                                       [ta.pivothigh(high, 5, 5), ta.pivotlow(low, 5, 5)],
-                                       lookahead=barmerge.lookahead_off,
-                                       gaps=barmerge.gaps_off)
-
-// ST High 피봇 - 가격이 변경되었을 때만 추가
-if not na(st15High) and st15High != lastST15High
-    pt = PivotPoint.new(st15High, bar_index - 5)
-    if f_addPivot(stHighArray, pt, 60) and showST
-        label.new(bar_index - 5, st15High, "•", style=label.style_none,
-                 textcolor=colorST, size=size.tiny, yloc=yloc.abovebar)
-    lastST15High := st15High
-
-// ST Low 피봇 - 가격이 변경되었을 때만 추가
-if not na(st15Low) and st15Low != lastST15Low
-    pt = PivotPoint.new(st15Low, bar_index - 5)
-    if f_addPivot(stLowArray, pt, 60) and showST
-        label.new(bar_index - 5, st15Low, "•", style=label.style_none,
-                 textcolor=colorST, size=size.tiny, yloc=yloc.belowbar)
-    lastST15Low := st15Low
-
-// 2. STS 피봇 감지 (Long 캔들 또는 Big Gap 조건)
-t = atr * 3
-s = math.abs(high - low) / close * 100
-hasLong = (s[3] >= t) or (s[2] >= t) or (s[1] >= t)
-
-hasBigGapHigh = f_checkBigGap(st15High, stHighArray)
-hasBigGapLow = f_checkBigGap(st15Low, stLowArray)
-
-if not na(st15High) and (hasLong or hasBigGapHigh)
-    pt = PivotPoint.new(st15High, bar_index - 5)
-    added = f_addPivot(stsHighArray, pt, 50)
-    if added and showSTS
-        label.new(bar_index - 5, st15High, "▼", style=label.style_none,
-                 textcolor=colorSTS, size=size.small, yloc=yloc.abovebar)
-
-if not na(st15Low) and (hasLong or hasBigGapLow)
-    pt = PivotPoint.new(st15Low, bar_index - 5)
-    added = f_addPivot(stsLowArray, pt, 50)
-    if added and showSTS
-        label.new(bar_index - 5, st15Low, "▲", style=label.style_none,
-                 textcolor=colorSTS, size=size.small, yloc=yloc.belowbar)
-
-// 3. IT 피봇 감지 (현재 차트)
+// 1. IT 피봇 감지 (현재 차트, 5/5)
 itHigh = ta.pivothigh(high, 5, 5)
 itLow = ta.pivotlow(low, 5, 5)
 
 if not na(itHigh)
     pt = PivotPoint.new(itHigh, bar_index - 5)
-    added = f_addPivot(itHighArray, pt, 50)
-    if added and showIT
+    if f_addPivot(itHighArray, pt, 50) and showIT
         label.new(bar_index - 5, itHigh, "▼", style=label.style_none,
                  textcolor=colorIT, size=size.small, yloc=yloc.abovebar)
 
 if not na(itLow)
     pt = PivotPoint.new(itLow, bar_index - 5)
-    added = f_addPivot(itLowArray, pt, 50)
-    if added and showIT
+    if f_addPivot(itLowArray, pt, 50) and showIT
         label.new(bar_index - 5, itLow, "▲", style=label.style_none,
                  textcolor=colorIT, size=size.small, yloc=yloc.belowbar)
 
-// 4. LT 피봇 감지 (4시간 차트)
-[lt4hHigh, lt4hLow] = request.security(syminfo.tickerid, "240",
-                                       [ta.pivothigh(high, 5, 5), ta.pivotlow(low, 5, 5)],
-                                       lookahead=barmerge.lookahead_off,
-                                       gaps=barmerge.gaps_off)
+// 2. ST 피봇 감지 (현재 차트, Long 캔들 또는 Big Gap 조건)
+// Long 캔들 체크
+t = atr * 3
+s = math.abs(high - low) / close * 100
+hasLong = (s[3] >= t) or (s[2] >= t) or (s[1] >= t)
 
-// LT High 피봇 - 가격이 변경되었을 때만 추가
-if not na(lt4hHigh) and lt4hHigh != lastLT4hHigh
-    pt = PivotPoint.new(lt4hHigh, bar_index - 5)
+// Big Gap 체크
+hasBigGapHigh = false
+hasBigGapLow = false
+if not na(itHigh) and array.size(itHighArray) > 1
+    prevPivot = array.get(itHighArray, array.size(itHighArray) - 2)
+    priceGap = math.abs(itHigh - prevPivot.price) / close * 100
+    hasBigGapHigh := priceGap >= atr * 5
+
+if not na(itLow) and array.size(itLowArray) > 1
+    prevPivot = array.get(itLowArray, array.size(itLowArray) - 2)
+    priceGap = math.abs(itLow - prevPivot.price) / close * 100
+    hasBigGapLow := priceGap >= atr * 5
+
+// ST 피봇 추가 (IT 피봇 중 조건 만족하는 것만)
+if not na(itHigh) and (hasLong or hasBigGapHigh)
+    pt = PivotPoint.new(itHigh, bar_index - 5)
+    if f_addPivot(stHighArray, pt, 50) and showST
+        label.new(bar_index - 5, itHigh, "▼", style=label.style_none,
+                 textcolor=colorST, size=size.normal, yloc=yloc.abovebar)
+
+if not na(itLow) and (hasLong or hasBigGapLow)
+    pt = PivotPoint.new(itLow, bar_index - 5)
+    if f_addPivot(stLowArray, pt, 50) and showST
+        label.new(bar_index - 5, itLow, "▲", style=label.style_none,
+                 textcolor=colorST, size=size.normal, yloc=yloc.belowbar)
+
+// 3. LT 피봇 감지 (현재 차트, 20/20)
+ltHigh = ta.pivothigh(high, 20, 20)
+ltLow = ta.pivotlow(low, 20, 20)
+
+if not na(ltHigh)
+    pt = PivotPoint.new(ltHigh, bar_index - 20)
     if f_addPivot(ltHighArray, pt, 30) and showLT
-        label.new(bar_index - 5, lt4hHigh, "▼", style=label.style_none,
-                 textcolor=colorLT, size=size.normal, yloc=yloc.abovebar)
-    lastLT4hHigh := lt4hHigh
+        label.new(bar_index - 20, ltHigh, "▼", style=label.style_none,
+                 textcolor=colorLT, size=size.large, yloc=yloc.abovebar)
 
-// LT Low 피봇 - 가격이 변경되었을 때만 추가
-if not na(lt4hLow) and lt4hLow != lastLT4hLow
-    pt = PivotPoint.new(lt4hLow, bar_index - 5)
+if not na(ltLow)
+    pt = PivotPoint.new(ltLow, bar_index - 20)
     if f_addPivot(ltLowArray, pt, 30) and showLT
-        label.new(bar_index - 5, lt4hLow, "▲", style=label.style_none,
-                 textcolor=colorLT, size=size.normal, yloc=yloc.belowbar)
-    lastLT4hLow := lt4hLow
+        label.new(bar_index - 20, ltLow, "▲", style=label.style_none,
+                 textcolor=colorLT, size=size.large, yloc=yloc.belowbar)
 
-// 5. BOS/MSS 판정 (ST 피봇 기준)
+// 4. BOS/MSS 판정 (ST 피봇 기준)
 if showBOSMSS
     [newMktStr1, newLine1, newBox1, newBOSBar1] = f_checkBOS(stHighArray, true, marketStructure, lastBOSSTHighBar)
     if not na(newLine1)
@@ -250,14 +205,14 @@ if showBOSMSS
         marketStructure := newMktStr2
         lastBOSSTLowBar := newBOSBar2
 
-// 6. 피봇 박스 그리기
+// 5. 피봇 박스 그리기
 if showMultiZone
     itHighBox := f_drawBox(itHighArray, itHighBox, colorIT, true)
     itLowBox := f_drawBox(itLowArray, itLowBox, colorIT, false)
     ltHighBox := f_drawBox(ltHighArray, ltHighBox, colorLT, true)
     ltLowBox := f_drawBox(ltLowArray, ltLowBox, colorLT, false)
 
-// 7. 이동평균선
+// 6. 이동평균선
 plot(sma200, 'SMA 200', color=color.new(color.orange, 50), linewidth=2)
 plot(sma60, 'SMA 60', color=color.new(color.blue, 70), linewidth=1)
 plot(sma20, 'SMA 20', color=color.new(color.green, 70), linewidth=1)
