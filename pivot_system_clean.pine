@@ -18,7 +18,6 @@ colorLT = input.color(color.new(color.red, 60), 'LT 피봇 색상', group='색�
 type PivotPoint
     float price
     int barIndex
-    string pivotType  // "ST" 또는 "IT"
 
 // ==================== 전역 변수 ====================
 atr = (ta.atr(3) / close) * 100
@@ -55,48 +54,39 @@ f_addPivot(arr, p, maxSize) =>
         result := true
     result
 
-// BOS/MSS 체크 함수 (ST 타입 피봇만 사용)
+// BOS/MSS 체크 함수
 f_checkBOS(arr, isBull, mktStr, lastBOSBar) =>
     newMktStr = mktStr
     newLine = line(na)
     newBox = box(na)
     newLastBOSBar = lastBOSBar
 
-    // 배열에서 ST 타입 피봇만 찾기
     if array.size(arr) > 0
-        lastPivot = PivotPoint.new(na, na, "")
+        lastPivot = array.get(arr, array.size(arr) - 1)
 
-        // 역순으로 순회하여 가장 최근 ST 피봇 찾기
-        for i = array.size(arr) - 1 to 0
-            p = array.get(arr, i)
-            if p.pivotType == "ST"
-                lastPivot := p
-                break
+        alreadyProcessed = not na(lastBOSBar) and lastBOSBar == lastPivot.barIndex
+        crossed = isBull ? ta.crossover(close, lastPivot.price) : ta.crossunder(close, lastPivot.price)
 
-        if not na(lastPivot.price)
-            alreadyProcessed = not na(lastBOSBar) and lastBOSBar == lastPivot.barIndex
-            crossed = isBull ? ta.crossover(close, lastPivot.price) : ta.crossunder(close, lastPivot.price)
+        if crossed and not alreadyProcessed
+            lbl = (isBull and mktStr == -1) or (not isBull and mktStr == 1) ? "MSS" : "BOS"
+            col = isBull ? #089981 : #f23645
 
-            if crossed and not alreadyProcessed
-                lbl = (isBull and mktStr == -1) or (not isBull and mktStr == 1) ? "MSS" : "BOS"
-                col = isBull ? #089981 : #f23645
-
-                newLine := line.new(lastPivot.barIndex, lastPivot.price, bar_index, lastPivot.price,
-                                   color=col, width=2)
-                newBox := box.new(lastPivot.barIndex, lastPivot.price, bar_index, lastPivot.price,
-                                 na, na, text=lbl, text_size=size.small,
-                                 text_halign=text.align_center,
-                                 text_valign=isBull ? text.align_bottom : text.align_top,
-                                 text_color=col)
-                newMktStr := isBull ? 1 : -1
-                newLastBOSBar := lastPivot.barIndex
+            newLine := line.new(lastPivot.barIndex, lastPivot.price, bar_index, lastPivot.price,
+                               color=col, width=2)
+            newBox := box.new(lastPivot.barIndex, lastPivot.price, bar_index, lastPivot.price,
+                             na, na, text=lbl, text_size=size.small,
+                             text_halign=text.align_center,
+                             text_valign=isBull ? text.align_bottom : text.align_top,
+                             text_color=col)
+            newMktStr := isBull ? 1 : -1
+            newLastBOSBar := lastPivot.barIndex
 
     [newMktStr, newLine, newBox, newLastBOSBar]
 
 // 피봇 박스 그리기 함수
 f_drawBox(arr, oldBox, col, findHigh) =>
     box.delete(oldBox)
-    closest = PivotPoint.new(na, na, "")
+    closest = PivotPoint.new(na, na)
     minD = 999999.0
     maxBars = 100
 
@@ -138,13 +128,13 @@ itLow = ta.pivotlow(low, 5, 5)
 
 // 2. IT 피봇 (5,5) 추가 - 항상 추가
 if not na(itHigh)
-    pt = PivotPoint.new(itHigh, bar_index - 5, "IT")
+    pt = PivotPoint.new(itHigh, bar_index - 5)
     if f_addPivot(itHighArray, pt, 50) and showIT
         label.new(bar_index - 5, itHigh, "▼", style=label.style_none,
                  textcolor=colorIT, size=size.small, yloc=yloc.abovebar)
 
 if not na(itLow)
-    pt = PivotPoint.new(itLow, bar_index - 5, "IT")
+    pt = PivotPoint.new(itLow, bar_index - 5)
     if f_addPivot(itLowArray, pt, 50) and showIT
         label.new(bar_index - 5, itLow, "▲", style=label.style_none,
                  textcolor=colorIT, size=size.small, yloc=yloc.belowbar)
@@ -155,61 +145,50 @@ t = atr * 3
 s = math.abs(high - low) / close * 100
 hasLong = (s[3] >= t) or (s[2] >= t) or (s[1] >= t)
 
-// Big Gap 체크 - IT 배열에서 IT 타입 피봇만 비교
+// Big Gap 체크 - IT 배열의 마지막 피봇과 비교
 hasBigGapHigh = false
 hasBigGapLow = false
 
-if not na(stHigh)
-    // IT 배열에서 가장 최근 IT 타입 피봇 찾기
-    if array.size(itHighArray) > 0
-        for i = array.size(itHighArray) - 1 to 0
-            p = array.get(itHighArray, i)
-            if p.pivotType == "IT"
-                priceGap = math.abs(stHigh - p.price) / close * 100
-                hasBigGapHigh := priceGap >= atr * 5
-                break
+if not na(stHigh) and array.size(itHighArray) > 0
+    lastPivot = array.get(itHighArray, array.size(itHighArray) - 1)
+    priceGap = math.abs(stHigh - lastPivot.price) / close * 100
+    hasBigGapHigh := priceGap >= atr * 5
 
-    // 조건 만족 시 ST로 추가
-    if hasLong or hasBigGapHigh
-        pt = PivotPoint.new(stHigh, bar_index - 2, "ST")
-        if f_addPivot(itHighArray, pt, 50) and showST
-            label.new(bar_index - 2, stHigh, "▼", style=label.style_none,
-                     textcolor=colorST, size=size.normal, yloc=yloc.abovebar)
+if not na(stLow) and array.size(itLowArray) > 0
+    lastPivot = array.get(itLowArray, array.size(itLowArray) - 1)
+    priceGap = math.abs(stLow - lastPivot.price) / close * 100
+    hasBigGapLow := priceGap >= atr * 5
 
-if not na(stLow)
-    // IT 배열에서 가장 최근 IT 타입 피봇 찾기
-    if array.size(itLowArray) > 0
-        for i = array.size(itLowArray) - 1 to 0
-            p = array.get(itLowArray, i)
-            if p.pivotType == "IT"
-                priceGap = math.abs(stLow - p.price) / close * 100
-                hasBigGapLow := priceGap >= atr * 5
-                break
+// ST 피봇 (2,2) - 조건 만족 시 IT 배열에 추가
+if not na(stHigh) and (hasLong or hasBigGapHigh)
+    pt = PivotPoint.new(stHigh, bar_index - 2)
+    if f_addPivot(itHighArray, pt, 50) and showST
+        label.new(bar_index - 2, stHigh, "▼", style=label.style_none,
+                 textcolor=colorST, size=size.normal, yloc=yloc.abovebar)
 
-    // 조건 만족 시 ST로 추가
-    if hasLong or hasBigGapLow
-        pt = PivotPoint.new(stLow, bar_index - 2, "ST")
-        if f_addPivot(itLowArray, pt, 50) and showST
-            label.new(bar_index - 2, stLow, "▲", style=label.style_none,
-                     textcolor=colorST, size=size.normal, yloc=yloc.belowbar)
+if not na(stLow) and (hasLong or hasBigGapLow)
+    pt = PivotPoint.new(stLow, bar_index - 2)
+    if f_addPivot(itLowArray, pt, 50) and showST
+        label.new(bar_index - 2, stLow, "▲", style=label.style_none,
+                 textcolor=colorST, size=size.normal, yloc=yloc.belowbar)
 
 // 4. LT 피봇 감지 (현재 차트, 20/20)
 ltHigh = ta.pivothigh(high, 20, 20)
 ltLow = ta.pivotlow(low, 20, 20)
 
 if not na(ltHigh)
-    pt = PivotPoint.new(ltHigh, bar_index - 20, "LT")
+    pt = PivotPoint.new(ltHigh, bar_index - 20)
     if f_addPivot(ltHighArray, pt, 30) and showLT
         label.new(bar_index - 20, ltHigh, "▼", style=label.style_none,
                  textcolor=colorLT, size=size.large, yloc=yloc.abovebar)
 
 if not na(ltLow)
-    pt = PivotPoint.new(ltLow, bar_index - 20, "LT")
+    pt = PivotPoint.new(ltLow, bar_index - 20)
     if f_addPivot(ltLowArray, pt, 30) and showLT
         label.new(bar_index - 20, ltLow, "▲", style=label.style_none,
                  textcolor=colorLT, size=size.large, yloc=yloc.belowbar)
 
-// 5. BOS/MSS 판정 (IT 배열에서 ST 타입 피봇만 사용)
+// 5. BOS/MSS 판정 (보완된 IT 배열 사용)
 if showBOSMSS
     [newMktStr1, newLine1, newBox1, newBOSBar1] = f_checkBOS(itHighArray, true, marketStructure, lastBOSHighBar)
     if not na(newLine1)
