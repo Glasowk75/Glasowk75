@@ -6,6 +6,10 @@ showMultiZone = input.bool(true, '피봇 박스 표시', group='표시')
 showIT = input.bool(true, 'IT 피봇 표시', group='표시')
 showLT = input.bool(true, 'LT 피봇 표시', group='표시')
 showBOSMSS = input.bool(true, 'BOS/MSS 표시', group='표시')
+showDivergence = input.bool(true, '다이버전스 표시', group='표시')
+
+rsiLength = input.int(14, 'RSI 길이', minval=5, maxval=50, group='다이버전스')
+showITDiv = input.bool(true, 'IT 다이버전스', group='다이버전스')
 
 multiPercent = input.float(0.2, '피봇 박스 범위 (%)', minval=0.1, maxval=1.0, step=0.05, group='설정')
 
@@ -16,8 +20,10 @@ colorLT = input.color(color.new(color.red, 60), 'LT 피봇 색상', group='색�
 type PivotPoint
     float price
     int barIndex
+    float rsiValue
 
 // ==================== 전역 변수 ====================
+rsi = ta.rsi(close, rsiLength)
 sma200 = ta.sma(close, 200)
 sma60 = ta.sma(close, 60)
 sma20 = ta.sma(close, 20)
@@ -80,10 +86,47 @@ f_checkBOS(arr, isBull, mktStr, lastBOSBar) =>
 
     [newMktStr, newLine, newBox, newLastBOSBar]
 
+// 다이버전스 체크 함수
+f_checkDivergence(arr, isHigh) =>
+    if showDivergence and showITDiv and array.size(arr) >= 2
+        curr = array.get(arr, array.size(arr) - 1)
+
+        for i = 2 to 3
+            if array.size(arr) >= i
+                prev = array.get(arr, array.size(arr) - i)
+
+                priceHigher = curr.price > prev.price
+                priceLower = curr.price < prev.price
+                rsiHigher = curr.rsiValue > prev.rsiValue
+                rsiLower = curr.rsiValue < prev.rsiValue
+
+                if isHigh
+                    // Regular Bearish Divergence: 가격 상승 + RSI 하락
+                    if rsiLower and priceHigher
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#f23645, width=2, style=line.style_dashed)
+                        break
+                    // Hidden Bullish Divergence: 가격 하락 + RSI 상승
+                    else if rsiHigher and priceLower
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#ff9800, width=2, style=line.style_dashed)
+                        break
+                else
+                    // Regular Bullish Divergence: 가격 하락 + RSI 상승
+                    if rsiHigher and priceLower
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#089981, width=2, style=line.style_dashed)
+                        break
+                    // Hidden Bearish Divergence: 가격 상승 + RSI 하락
+                    else if rsiLower and priceHigher
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#4caf50, width=2, style=line.style_dashed)
+                        break
+
 // 피봇 박스 그리기 함수
 f_drawBox(arr, oldBox, col, findHigh) =>
     box.delete(oldBox)
-    closest = PivotPoint.new(na, na)
+    closest = PivotPoint.new(na, na, na)
     minD = 999999.0
     maxBars = 100
 
@@ -119,29 +162,35 @@ itHigh = ta.pivothigh(high, 5, 5)
 itLow = ta.pivotlow(low, 5, 5)
 
 if not na(itHigh)
-    pt = PivotPoint.new(itHigh, bar_index - 5)
-    if f_addPivot(itHighArray, pt, 50) and showIT
+    pt = PivotPoint.new(itHigh, bar_index - 5, rsi[5])
+    added = f_addPivot(itHighArray, pt, 50)
+    if added and showIT
         label.new(bar_index - 5, itHigh, "▼", style=label.style_none,
                  textcolor=colorIT, size=size.small, yloc=yloc.abovebar)
+    if added
+        f_checkDivergence(itHighArray, true)
 
 if not na(itLow)
-    pt = PivotPoint.new(itLow, bar_index - 5)
-    if f_addPivot(itLowArray, pt, 50) and showIT
+    pt = PivotPoint.new(itLow, bar_index - 5, rsi[5])
+    added = f_addPivot(itLowArray, pt, 50)
+    if added and showIT
         label.new(bar_index - 5, itLow, "▲", style=label.style_none,
                  textcolor=colorIT, size=size.small, yloc=yloc.belowbar)
+    if added
+        f_checkDivergence(itLowArray, false)
 
 // 2. LT 피봇 감지 (20,20)
 ltHigh = ta.pivothigh(high, 20, 20)
 ltLow = ta.pivotlow(low, 20, 20)
 
 if not na(ltHigh)
-    pt = PivotPoint.new(ltHigh, bar_index - 20)
+    pt = PivotPoint.new(ltHigh, bar_index - 20, rsi[20])
     if f_addPivot(ltHighArray, pt, 30) and showLT
         label.new(bar_index - 20, ltHigh, "▼", style=label.style_none,
                  textcolor=colorLT, size=size.large, yloc=yloc.abovebar)
 
 if not na(ltLow)
-    pt = PivotPoint.new(ltLow, bar_index - 20)
+    pt = PivotPoint.new(ltLow, bar_index - 20, rsi[20])
     if f_addPivot(ltLowArray, pt, 30) and showLT
         label.new(bar_index - 20, ltLow, "▲", style=label.style_none,
                  textcolor=colorLT, size=size.large, yloc=yloc.belowbar)
