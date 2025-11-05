@@ -152,17 +152,17 @@ f_drawBox(arr, oldBox, col, findHigh) =>
 
 // ST High 피봇 - 가격이 변경되었을 때만 추가
 if not na(st15High) and st15High != lastST15High
-    pt = PivotPoint.new(st15High, bar_index)
+    pt = PivotPoint.new(st15High, bar_index - 5)
     if f_addPivot(stHighArray, pt, 60) and showST
-        label.new(bar_index, st15High, "•", style=label.style_none,
+        label.new(bar_index - 5, st15High, "•", style=label.style_none,
                  textcolor=colorST, size=size.tiny, yloc=yloc.abovebar)
     lastST15High := st15High
 
 // ST Low 피봇 - 가격이 변경되었을 때만 추가
 if not na(st15Low) and st15Low != lastST15Low
-    pt = PivotPoint.new(st15Low, bar_index)
+    pt = PivotPoint.new(st15Low, bar_index - 5)
     if f_addPivot(stLowArray, pt, 60) and showST
-        label.new(bar_index, st15Low, "•", style=label.style_none,
+        label.new(bar_index - 5, st15Low, "•", style=label.style_none,
                  textcolor=colorST, size=size.tiny, yloc=yloc.belowbar)
     lastST15Low := st15Low
 
@@ -214,17 +214,17 @@ if not na(itLow)
 
 // LT High 피봇 - 가격이 변경되었을 때만 추가
 if not na(lt4hHigh) and lt4hHigh != lastLT4hHigh
-    pt = PivotPoint.new(lt4hHigh, bar_index)
+    pt = PivotPoint.new(lt4hHigh, bar_index - 5)
     if f_addPivot(ltHighArray, pt, 30) and showLT
-        label.new(bar_index, lt4hHigh, "▼", style=label.style_none,
+        label.new(bar_index - 5, lt4hHigh, "▼", style=label.style_none,
                  textcolor=colorLT, size=size.normal, yloc=yloc.abovebar)
     lastLT4hHigh := lt4hHigh
 
 // LT Low 피봇 - 가격이 변경되었을 때만 추가
 if not na(lt4hLow) and lt4hLow != lastLT4hLow
-    pt = PivotPoint.new(lt4hLow, bar_index)
+    pt = PivotPoint.new(lt4hLow, bar_index - 5)
     if f_addPivot(ltLowArray, pt, 30) and showLT
-        label.new(bar_index, lt4hLow, "▲", style=label.style_none,
+        label.new(bar_index - 5, lt4hLow, "▲", style=label.style_none,
                  textcolor=colorLT, size=size.normal, yloc=yloc.belowbar)
     lastLT4hLow := lt4hLow
 
