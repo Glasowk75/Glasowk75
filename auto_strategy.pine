@@ -1,0 +1,39 @@
+// Auto-generated Strategy
+//@version=5
+strategy("AI Discovered Patterns", overlay=true)
+
+// === 입력 설정 ===
+usePattern1 = input.bool(true, "Pattern 1")
+usePattern2 = input.bool(true, "Pattern 2")
+usePattern3 = input.bool(true, "Pattern 3")
+
+// === 지표 계산 ===
+rsi = ta.rsi(close, 14)
+[diplus, diminus, adx] = ta.dmi(14, 14)
+sma20 = ta.sma(close, 20)
+dist_sma20 = (close - sma20) / sma20 * 100
+
+// === 자동 발견된 패턴들 ===
+
+// Pattern 1: RSI70_SMA1
+// 승률: 79.4%, 평균 수익: 0.76%
+pattern1 = rsi > 70 and math.abs(dist_sma20) < 1
+
+// Pattern 2: RSI30_ADX40
+// 승률: 67.8%, 평균 수익: 0.53%
+pattern2 = rsi < 30 and adx > 40
+
+// Pattern 3: Pivot_Support_RSI
+// 승률: 65.0%, 평균 수익: 0.52%
+pattern3 = rsi < 35
+
+// === 진입 신호 ===
+longSignal = (usePattern1 and pattern1) or (usePattern2 and pattern2) or (usePattern3 and pattern3)
+
+// === 전략 실행 ===
+if longSignal
+    strategy.entry("Long", strategy.long)
+    strategy.exit("Exit", "Long", profit=close*0.02, loss=close*0.01)  // 2% 익절, 1% 손절
+
+// === 시각화 ===
+plotshape(longSignal, style=shape.triangleup, location=location.belowbar, color=color.green)
