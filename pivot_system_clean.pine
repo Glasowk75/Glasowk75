@@ -1,5 +1,5 @@
 //@version=5
-indicator('피봇 시스템', overlay=true)
+indicator('피봇 시스템', overlay=true, max_bars_back=5000, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 // ==================== 입력 설정 ====================
 
