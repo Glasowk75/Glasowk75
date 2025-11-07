@@ -6,8 +6,13 @@
 
 import csv
 
-def calculate_pivot_overlap(csv_path, overlap_range_atr_multiplier=1.0):
-    """피봇 겹침 개수 계산"""
+def calculate_pivot_overlap(csv_path, overlap_range_percent=0.2, max_lookback_bars=500):
+    """피봇 겹침 개수 계산
+
+    Args:
+        overlap_range_percent: 피봇 겹침 범위 (기본 0.2%)
+        max_lookback_bars: 최대 과거 검색 범위 (기본 500봉)
+    """
 
     # CSV 읽기
     data = []
@@ -17,6 +22,8 @@ def calculate_pivot_overlap(csv_path, overlap_range_atr_multiplier=1.0):
             data.append(row)
 
     print(f"📊 CSV 로드: {len(data)}개 봉")
+    print(f"   피봇 겹침 범위: ±{overlap_range_percent}%")
+    print(f"   최대 과거 검색: {max_lookback_bars}봉")
 
     # IT 피봇 수집
     it_high_pivots = []
@@ -29,8 +36,7 @@ def calculate_pivot_overlap(csv_path, overlap_range_atr_multiplier=1.0):
                 it_high_pivots.append({
                     'index': idx,
                     'price': float(row['IT_High'].strip()),
-                    'time': row['time'],
-                    'atr': float(row['ATR'].strip())
+                    'time': row['time']
                 })
             except ValueError:
                 pass
@@ -41,8 +47,7 @@ def calculate_pivot_overlap(csv_path, overlap_range_atr_multiplier=1.0):
                 it_low_pivots.append({
                     'index': idx,
                     'price': float(row['IT_Low'].strip()),
-                    'time': row['time'],
-                    'atr': float(row['ATR'].strip())
+                    'time': row['time']
                 })
             except ValueError:
                 pass
@@ -59,21 +64,20 @@ def calculate_pivot_overlap(csv_path, overlap_range_atr_multiplier=1.0):
     for i, pivot in enumerate(it_high_pivots):
         overlap_count = 0
         price = pivot['price']
-        atr = pivot['atr']
+        pivot_idx = pivot['index']
 
-        # 겹침 범위 (ATR × multiplier)
-        overlap_threshold = atr  # ATR은 이미 %로 계산되어 있음
-        price_range_pct = overlap_threshold * overlap_range_atr_multiplier
+        # 가격 범위 (고정 0.2%)
+        price_high = price * (1 + overlap_range_percent / 100)
+        price_low = price * (1 - overlap_range_percent / 100)
 
-        # 가격 범위
-        price_high = price * (1 + price_range_pct / 100)
-        price_low = price * (1 - price_range_pct / 100)
-
-        # 다른 피봇들과 비교
+        # 과거 500봉 이내의 다른 피봇들과 비교
         for j, other in enumerate(it_high_pivots):
             if i != j:  # 자기 자신 제외
-                if price_low <= other['price'] <= price_high:
-                    overlap_count += 1
+                # 500봉 이내 체크
+                bar_diff = abs(pivot_idx - other['index'])
+                if bar_diff <= max_lookback_bars:
+                    if price_low <= other['price'] <= price_high:
+                        overlap_count += 1
 
         # 해당 인덱스에 겹침 개수 저장
         data[pivot['index']]['IT_High_Overlap'] = overlap_count
@@ -82,18 +86,18 @@ def calculate_pivot_overlap(csv_path, overlap_range_atr_multiplier=1.0):
     for i, pivot in enumerate(it_low_pivots):
         overlap_count = 0
         price = pivot['price']
-        atr = pivot['atr']
+        pivot_idx = pivot['index']
 
-        overlap_threshold = atr
-        price_range_pct = overlap_threshold * overlap_range_atr_multiplier
+        price_high = price * (1 + overlap_range_percent / 100)
+        price_low = price * (1 - overlap_range_percent / 100)
 
-        price_high = price * (1 + price_range_pct / 100)
-        price_low = price * (1 - price_range_pct / 100)
-
+        # 과거 500봉 이내의 다른 피봇들과 비교
         for j, other in enumerate(it_low_pivots):
             if i != j:
-                if price_low <= other['price'] <= price_high:
-                    overlap_count += 1
+                bar_diff = abs(pivot_idx - other['index'])
+                if bar_diff <= max_lookback_bars:
+                    if price_low <= other['price'] <= price_high:
+                        overlap_count += 1
 
         data[pivot['index']]['IT_Low_Overlap'] = overlap_count
 
@@ -160,6 +164,10 @@ if __name__ == "__main__":
 
     print("🚀 피봇 겹침 개수 계산 시작...\n")
 
-    data, output_file = calculate_pivot_overlap(csv_file, overlap_range_atr_multiplier=1.0)
+    data, output_file = calculate_pivot_overlap(
+        csv_file,
+        overlap_range_percent=0.2,  # Pine Script의 multiPercent와 동일
+        max_lookback_bars=500       # 최근 500봉만 체크
+    )
 
     print(f"\n\n✅ 완료! 새 파일을 사용하세요: {output_file}")
