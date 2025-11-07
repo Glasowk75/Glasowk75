@@ -1,0 +1,346 @@
+//@version=5
+indicator('피봇 시스템 csv용', overlay=true, max_bars_back=5000, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+// ==================== 입력 설정 ====================
+showMultiZone = input.bool(true, '피봇 박스 표시', group='표시')
+showIT = input.bool(true, 'IT 피봇 표시', group='표시')
+showLT = input.bool(true, 'LT 피봇 표시', group='표시')
+showBOSMSS = input.bool(true, 'BOS/MSS 표시', group='표시')
+showDivergence = input.bool(true, '다이버전스 표시', group='표시')
+
+rsiLength = input.int(14, 'RSI 길이', minval=5, maxval=50, group='다이버전스')
+showITDiv = input.bool(true, 'IT 다이버전스', group='다이버전스')
+
+multiPercent = input.float(0.2, '피봇 박스 범위 (%)', minval=0.1, maxval=1.0, step=0.05, group='설정')
+
+colorIT = input.color(color.new(color.blue, 60), 'IT 피봇 색상', group='색상')
+colorLT = input.color(color.new(color.red, 60), 'LT 피봇 색상', group='색상')
+
+// ==================== 데이터 구조 ====================
+type PivotPoint
+    float price
+    int barIndex
+    float rsiValue
+    int overlapCount  // 겹치는 피봇 개수
+
+// ==================== 전역 변수 ====================
+atr = (ta.atr(3) / close) * 100
+rsi = ta.rsi(close, rsiLength)
+sma200 = ta.sma(close, 200)
+sma60 = ta.sma(close, 60)
+sma20 = ta.sma(close, 20)
+dev1 = 2 * ta.stdev(close, 20)
+bb1_upper =sma20 + dev1
+bb1_lower = sma20 - dev1
+plot(bb1_upper, "bb1 Upper", color=#29ff7bd2, display = display.pane)
+plot(bb1_lower, "bb1 Lower", color=#29ff7bc9, display = display.pane)
+// ==================== 배열 선언 ====================
+var array<PivotPoint> itHighArray = array.new<PivotPoint>()
+var array<PivotPoint> itLowArray = array.new<PivotPoint>()
+var array<PivotPoint> ltHighArray = array.new<PivotPoint>()
+var array<PivotPoint> ltLowArray = array.new<PivotPoint>()
+
+// ==================== 박스 및 시장 구조 변수 ====================
+var box itHighBox = na
+var label itHighLabel = na
+var box itLowBox = na
+var label itLowLabel = na
+var box ltHighBox = na
+var label ltHighLabel = na
+var box ltLowBox = na
+var label ltLowLabel = na
+
+var int marketStructure = 0  // 1: Bullish, -1: Bearish, 0: Neutral
+var int lastBOSHighBar = na
+var int lastBOSLowBar = na
+var int bosConsecutiveCount = 0
+
+// ==================== 함수 정의 ====================
+
+// 피봇 겹침 개수 계산 함수 (배열 내 피봇 비교)
+f_calculateOverlap(arr, newPrice) =>
+    overlapCount = 0
+    if array.size(arr) > 0
+        // 새 피봇의 박스 구간 계산
+        boxTop = newPrice * (1 + multiPercent / 100)
+        boxBot = newPrice * (1 - multiPercent / 100)
+
+        // 기존 피봇들 중 박스 구간 내에 있는 것 카운트
+        for i = 0 to array.size(arr) - 1
+            p = array.get(arr, i)
+            if p.price >= boxBot and p.price <= boxTop
+                overlapCount += 1
+    overlapCount
+
+// 피봇 추가 함수 - 배열 크기 관리
+f_addPivot(arr, p, maxSize) =>
+    result = false
+    if not na(p)
+        array.push(arr, p)
+        if array.size(arr) > maxSize
+            array.shift(arr)
+        result := true
+    result
+
+// BOS/MSS 체크 함수
+f_checkBOS(arr, isBull, mktStr, lastBOSBar) =>
+    newMktStr = mktStr
+    newLine = line(na)
+    newBox = box(na)
+    newLastBOSBar = lastBOSBar
+
+    if array.size(arr) > 0
+        lastPivot = array.get(arr, array.size(arr) - 1)
+
+        alreadyProcessed = not na(lastBOSBar) and lastBOSBar == lastPivot.barIndex
+        crossed = isBull ? ta.crossover(close, lastPivot.price) : ta.crossunder(close, lastPivot.price)
+
+        if crossed and not alreadyProcessed
+            lbl = (isBull and mktStr == -1) or (not isBull and mktStr == 1) ? "MSS" : "BOS"
+            col = isBull ? #08998186 : #f2364681
+
+            newLine := line.new(lastPivot.barIndex, lastPivot.price, bar_index, lastPivot.price,
+                               color=col, width=1)
+            newBox := box.new(lastPivot.barIndex, lastPivot.price, bar_index, lastPivot.price,
+                             na, na, text=lbl, text_size=size.small,
+                             text_halign=text.align_center,
+                             text_valign=isBull ? text.align_bottom : text.align_top,
+                             text_color=col)
+            newMktStr := isBull ? 1 : -1
+            newLastBOSBar := lastPivot.barIndex
+
+    [newMktStr, newLine, newBox, newLastBOSBar]
+
+// 다이버전스 체크 함수 (차트에 라인 그리기)
+f_checkDivergence(arr, isHigh) =>
+    if showDivergence and showITDiv and array.size(arr) >= 2
+        curr = array.get(arr, array.size(arr) - 1)
+
+        for i = 2 to 3
+            if array.size(arr) >= i
+                prev = array.get(arr, array.size(arr) - i)
+
+                priceHigher = curr.price > prev.price
+                priceLower = curr.price < prev.price
+                rsiHigher = curr.rsiValue > prev.rsiValue
+                rsiLower = curr.rsiValue < prev.rsiValue
+                priceChange = math.abs(curr.price - prev.price) / close * 100
+
+                if isHigh
+                    // Regular Bearish Divergence: 가격 상승 + RSI 하락 (가격 변화 작을 때만)
+                    if rsiLower and priceHigher and priceChange < atr * 1.0
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#f23645, width=1, style=line.style_solid )
+                        break
+                else
+                    // Regular Bullish Divergence: 가격 하락 + RSI 상승 (가격 변화 작을 때만)
+                    if rsiHigher and priceLower //and priceChange < atr * 1.2
+                        line.new(prev.barIndex, prev.price, curr.barIndex, curr.price,
+                                 color=#081699, width=1, style=line.style_solid)
+                        break
+
+// ==================== 다이버전스 신호 감지 함수 (CSV용) ====================
+f_getDivergenceSignal(highArr, lowArr) =>
+    signal = 0.0
+
+    // 하락 다이버전스 체크 (IT High 피봇)
+    if showDivergence and showITDiv and array.size(highArr) >= 2
+        curr = array.get(highArr, array.size(highArr) - 1)
+
+        // 현재 피봇이 최근에 생성되었는지 확인 (5봉 전)
+        if bar_index - curr.barIndex == 5
+            for i = 2 to 3
+                if array.size(highArr) >= i
+                    prev = array.get(highArr, array.size(highArr) - i)
+
+                    priceHigher = curr.price > prev.price
+                    rsiLower = curr.rsiValue < prev.rsiValue
+                    priceChange = math.abs(curr.price - prev.price) / close * 100
+
+                    if rsiLower and priceHigher and priceChange < atr * 1.0
+                        signal := -1  // 하락 다이버전스
+                        break
+
+    // 상승 다이버전스 체크 (IT Low 피봇) - 하락 다이버전스 없을 때만
+    if signal == 0.0 and showDivergence and showITDiv and array.size(lowArr) >= 2
+        curr = array.get(lowArr, array.size(lowArr) - 1)
+
+        // 현재 피봇이 최근에 생성되었는지 확인 (5봉 전)
+        if bar_index - curr.barIndex == 5
+            for i = 2 to 3
+                if array.size(lowArr) >= i
+                    prev = array.get(lowArr, array.size(lowArr) - i)
+
+                    priceLower = curr.price < prev.price
+                    rsiHigher = curr.rsiValue > prev.rsiValue
+
+                    if rsiHigher and priceLower
+                        signal := 1  // 상승 다이버전스
+                        break
+
+    signal
+
+// 피봇 박스 그리기 함수
+f_drawBox(arr, oldBox, oldLabel, col, findHigh) =>
+    box.delete(oldBox)
+    label.delete(oldLabel)
+    closest = PivotPoint.new(na, na, na, 0)
+    minD = 999999.0
+    maxBars = 100
+
+    // 현재가에서 가장 가까운 피봇 찾기
+    if array.size(arr) > 0
+        for i = 0 to array.size(arr) - 1
+            p = array.get(arr, i)
+            barDiff = bar_index - p.barIndex
+
+            if barDiff <= maxBars
+                // High 피봇은 현재가보다 위, Low 피봇은 아래만 선택
+                if findHigh ? p.price > close : p.price < close
+                    d = math.abs(p.price - close)
+                    if d < minD
+                        minD := d
+                        closest := p
+
+    box newBox = na
+    label newLabel = na
+
+    if not na(closest.price)
+        boxTop = closest.price * (1 + multiPercent / 100)
+        boxBot = closest.price * (1 - multiPercent / 100)
+        newBox := box.new(closest.barIndex, boxTop, bar_index + 20, boxBot,
+                         bgcolor=color.new(col, 90),
+                         border_color=color.new(col, 60))
+
+        // 겹침 개수 표시
+        if closest.overlapCount > 0
+            newLabel := label.new(bar_index + 20, closest.price,
+                                 text=str.tostring(closest.overlapCount),
+                                 style=label.style_none,
+                                 textcolor=col,
+                                 size=size.normal,
+                                 xloc=xloc.bar_index,
+                                 yloc=yloc.price)
+
+    [newBox, newLabel]
+
+// ==================== 메인 로직 ====================
+
+// 1. IT 피봇 감지 (5,5)
+itHigh = ta.pivothigh(high, 5, 5)
+itLow = ta.pivotlow(low, 5, 5)
+
+if not na(itHigh)
+    // 겹침 개수 계산 (기존 IT 피봇들과 비교)
+    overlap = f_calculateOverlap(itHighArray, itHigh)
+    pt = PivotPoint.new(itHigh, bar_index - 5, rsi[5], overlap)
+    added = f_addPivot(itHighArray, pt, 500)
+    if added and showIT
+        label.new(bar_index - 5, itHigh, "▼", style=label.style_none,
+                 textcolor=colorIT, size=size.small, yloc=yloc.abovebar)
+    if added
+        f_checkDivergence(itHighArray, true)
+
+if not na(itLow)
+    // 겹침 개수 계산 (기존 IT 피봇들과 비교)
+    overlap = f_calculateOverlap(itLowArray, itLow)
+    pt = PivotPoint.new(itLow, bar_index - 5, rsi[5], overlap)
+    added = f_addPivot(itLowArray, pt, 500)
+    if added and showIT
+        label.new(bar_index - 5, itLow, "▲", style=label.style_none,
+                 textcolor=colorIT, size=size.small, yloc=yloc.belowbar)
+    if added
+        f_checkDivergence(itLowArray, false)
+
+// 2. LT 피봇 감지 (20,20)
+ltHigh = ta.pivothigh(high, 20, 20)
+ltLow = ta.pivotlow(low, 20, 20)
+
+if not na(ltHigh)
+    // 겹침 개수 계산
+    overlap = f_calculateOverlap(ltHighArray, ltHigh)
+    pt = PivotPoint.new(ltHigh, bar_index - 20, rsi[20], overlap)
+    if f_addPivot(ltHighArray, pt, 30) and showLT
+        label.new(bar_index - 20, ltHigh, "▼", style=label.style_none,
+                 textcolor=colorLT, size=size.large, yloc=yloc.abovebar)
+
+if not na(ltLow)
+    // 겹침 개수 계산
+    overlap = f_calculateOverlap(ltLowArray, ltLow)
+    pt = PivotPoint.new(ltLow, bar_index - 20, rsi[20], overlap)
+    if f_addPivot(ltLowArray, pt, 30) and showLT
+        label.new(bar_index - 20, ltLow, "▲", style=label.style_none,
+                 textcolor=colorLT, size=size.large, yloc=yloc.belowbar)
+
+// 3. BOS/MSS 판정 (IT 배열 사용)
+if showBOSMSS
+    [newMktStr1, newLine1, newBox1, newBOSBar1] = f_checkBOS(itHighArray, true, marketStructure, lastBOSHighBar)
+    if not na(newLine1)
+        if marketStructure == -1
+            bosConsecutiveCount := 1
+        else
+            bosConsecutiveCount += 1
+
+        marketStructure := newMktStr1
+        lastBOSHighBar := newBOSBar1
+
+    [newMktStr2, newLine2, newBox2, newBOSBar2] = f_checkBOS(itLowArray, false, marketStructure, lastBOSLowBar)
+    if not na(newLine2)
+        if marketStructure == 1
+            bosConsecutiveCount := 1
+        else
+            bosConsecutiveCount += 1
+
+        marketStructure := newMktStr2
+        lastBOSLowBar := newBOSBar2
+
+// 4. 피봇 박스 그리기
+if showMultiZone
+    [newItHighBox, newItHighLabel] = f_drawBox(itHighArray, itHighBox, itHighLabel, colorIT, true)
+    itHighBox := newItHighBox
+    itHighLabel := newItHighLabel
+
+    [newItLowBox, newItLowLabel] = f_drawBox(itLowArray, itLowBox, itLowLabel, colorIT, false)
+    itLowBox := newItLowBox
+    itLowLabel := newItLowLabel
+
+    [newLtHighBox, newLtHighLabel] = f_drawBox(ltHighArray, ltHighBox, ltHighLabel, colorLT, true)
+    ltHighBox := newLtHighBox
+    ltHighLabel := newLtHighLabel
+
+    [newLtLowBox, newLtLowLabel] = f_drawBox(ltLowArray, ltLowBox, ltLowLabel, colorLT, false)
+    ltLowBox := newLtLowBox
+    ltLowLabel := newLtLowLabel
+
+// 5. 이동평균선
+plot(sma200, 'SMA 200', color=color.new(color.orange, 50), linewidth=2)
+plot(sma60, 'SMA 60', color=#00eeffa6, linewidth=1)
+plot(sma20, 'SMA 20', color=#4caf4fb2, linewidth=1)
+
+// ==================== CSV 출력용 추가 코드 ====================
+
+// 피봇 거리 계산용
+float csvPivotHighDist = 999.0
+float csvPivotLowDist = 999.0
+
+// 가장 가까운 피봇까지 거리만 계산
+if array.size(itHighArray) > 0
+    lastHigh = array.get(itHighArray, array.size(itHighArray) - 1)
+    csvPivotHighDist := math.abs(close - lastHigh.price) / close * 100
+
+if array.size(itLowArray) > 0
+    lastLow = array.get(itLowArray, array.size(itLowArray) - 1)
+    csvPivotLowDist := math.abs(close - lastLow.price) / close * 100
+
+// ==================== 다이버전스 신호 계산 ====================
+divSignal = f_getDivergenceSignal(itHighArray, itLowArray)
+
+// CSV 저장용 플롯
+plot(itHigh, 'IT_High', display=display.data_window)  // 피봇 발생시만 값
+plot(itLow, 'IT_Low', display=display.data_window)    // 피봇 발생시만 값
+plot(ltHigh, 'LT_High', display=display.data_window)
+plot(ltLow, 'LT_Low', display=display.data_window)
+plot(marketStructure, 'Market_Struct', display=display.data_window)
+plot(bosConsecutiveCount, 'BOS_Count', display=display.data_window)
+plot(csvPivotHighDist, 'PivHigh_Dist', display=display.data_window)
+plot(csvPivotLowDist, 'PivLow_Dist', display=display.data_window)
+plot(divSignal, 'Divergence', display=display.data_window)  // ⭐ 추가!
