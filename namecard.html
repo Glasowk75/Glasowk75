@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>페인트반반장 명함</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #e8e8e8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
+    gap: 40px;
+    padding: 40px;
+  }
+
+  .label {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 8px;
+    font-weight: bold;
+  }
+
+  /* 명함 크기: 90mm x 50mm (표준 한국 명함) */
+  .card {
+    width: 340px;
+    height: 189px;
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  }
+
+  /* ───── 앞면 ───── */
+  .front {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 24px 28px;
+  }
+
+  .front::before {
+    content: '';
+    position: absolute;
+    top: -30px;
+    right: -30px;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: rgba(229, 57, 53, 0.15);
+  }
+
+  .front::after {
+    content: '';
+    position: absolute;
+    bottom: -40px;
+    left: 20px;
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .brand-name {
+    font-size: 26px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: #ffffff;
+    margin-bottom: 4px;
+  }
+
+  .brand-name span {
+    color: #e53935;
+  }
+
+  .tagline {
+    font-size: 10px;
+    color: #90caf9;
+    letter-spacing: 1px;
+    margin-bottom: 18px;
+    font-weight: 400;
+  }
+
+  .front-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .front-info .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: #e0e0e0;
+  }
+
+  .front-info .row .icon {
+    color: #e53935;
+    font-size: 12px;
+    width: 14px;
+    text-align: center;
+  }
+
+  .phone-number {
+    font-size: 15px !important;
+    font-weight: 700;
+    color: #ffffff !important;
+    letter-spacing: 1px;
+  }
+
+  .accent-line {
+    width: 40px;
+    height: 3px;
+    background: #e53935;
+    margin-bottom: 14px;
+    border-radius: 2px;
+  }
+
+  /* ───── 뒷면 ───── */
+  .back {
+    background: #ffffff;
+    color: #222;
+    display: flex;
+    padding: 20px 28px;
+    gap: 20px;
+  }
+
+  .back-left {
+    flex: 1;
+    border-right: 2px solid #e53935;
+    padding-right: 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .back-right {
+    flex: 1.2;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 7px;
+  }
+
+  .service-title {
+    font-size: 9px;
+    font-weight: 700;
+    color: #e53935;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  .service-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .service-list li {
+    font-size: 10px;
+    color: #444;
+    padding-left: 10px;
+    position: relative;
+  }
+
+  .service-list li::before {
+    content: '▪';
+    color: #e53935;
+    position: absolute;
+    left: 0;
+    font-size: 8px;
+  }
+
+  .back-info-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 9.5px;
+    color: #444;
+    line-height: 1.4;
+  }
+
+  .back-info-row .icon {
+    color: #e53935;
+    font-size: 10px;
+    margin-top: 1px;
+    flex-shrink: 0;
+  }
+
+  .back-info-row a, .back-info-row span {
+    color: #333;
+    text-decoration: none;
+    word-break: break-all;
+  }
+
+  .back-brand {
+    font-size: 13px;
+    font-weight: 900;
+    color: #1a1a2e;
+    margin-bottom: 2px;
+  }
+
+  .back-brand span { color: #e53935; }
+
+  .divider {
+    width: 100%;
+    height: 1px;
+    background: #eee;
+    margin: 6px 0;
+  }
+
+  @media print {
+    body { background: white; }
+    .card { box-shadow: none; border: 1px solid #ccc; }
+  }
+</style>
+</head>
+<body>
+
+<div>
+  <div class="label">▶ 앞면 (Front)</div>
+  <div class="card front">
+    <div class="brand-name">페인트<span>반반장</span></div>
+    <div class="tagline">PAINT BAN BAN JANG · 대구·경북 전문 도장·방수</div>
+    <div class="accent-line"></div>
+    <div class="front-info">
+      <div class="row">
+        <span class="icon">📞</span>
+        <span class="phone-number">010-9996-3560</span>
+      </div>
+      <div class="row">
+        <span class="icon">📍</span>
+        <span>경북 칠곡군 석적읍 포남4길 14</span>
+      </div>
+      <div class="row">
+        <span class="icon">🗺</span>
+        <span>대구 · 경북 지역 출장 시공</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div>
+  <div class="label">▶ 뒷면 (Back)</div>
+  <div class="card back">
+    <div class="back-left">
+      <div class="service-title">시공 분야</div>
+      <ul class="service-list">
+        <li>아파트 내·외부 도장</li>
+        <li>상가 내·외부 도장</li>
+        <li>건물 외벽 도장</li>
+        <li>지하 및 외벽 방수</li>
+      </ul>
+    </div>
+    <div class="back-right">
+      <div class="back-brand">페인트<span>반반장</span></div>
+      <div class="divider"></div>
+      <div class="back-info-row">
+        <span class="icon">📞</span>
+        <span>010-9996-3560</span>
+      </div>
+      <div class="back-info-row">
+        <span class="icon">📍</span>
+        <span>경북 칠곡군 석적읍 포남4길 14</span>
+      </div>
+      <div class="back-info-row">
+        <span class="icon">📝</span>
+        <span>blog.naver.com/bang321s</span>
+      </div>
+      <div class="back-info-row">
+        <span class="icon">▶</span>
+        <span>youtube.com/user/bang321s</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
